@@ -25,8 +25,6 @@ const weekData = [
   { label: 'W3',  title: '第03週：海葵',     url: 'https://tku414730019-netizen.github.io/waterweed/',  color: '#f0abfc' },
   { label: 'W4',  title: '第04週：電流急急棒',     url: 'https://tku414730019-netizen.github.io/buzz/',  color: '#86efac' },
   { label: 'W5',  title: '第05週：寶藏獵人',     url: 'https://tku414730019-netizen.github.io/dimonnn/',  color: '#fde68a' },
-  { label: 'W6',  title: '第06週：',   url: 'weeks/week6.html',  color: '#fb923c' },
-  { label: 'W7',  title: '第07週：',     url: 'weeks/week7.html',  color: '#f472b6' },
 ];
 
 // ============================================================

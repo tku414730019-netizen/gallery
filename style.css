@@ -1,8 +1,219 @@
-html, body {
-  margin: 0;
-  padding: 0;
+/* ================================================
+   style.css — 時光記憶圖譜
+   銀河風格 · 科技感 · 微夢幻
+   ================================================ */
+
+/* ── Google Fonts ── */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+TC:wght@300;400&display=swap');
+
+/* ── CSS 變數 ── */
+:root {
+  --bg: #02030f;
+  --accent: #7ee8fa;
+  --accent2: #a78bfa;
+  --accent3: #f0abfc;
+  --gold: #fde68a;
+  --panel-bg: rgba(4, 8, 26, 0.92);
+  --panel-border: rgba(126, 232, 250, 0.18);
+  --font-display: 'Orbitron', sans-serif;
+  --font-body: 'Noto Sans TC', sans-serif;
+  --panel-width: 75vw;
+  --glow: 0 0 24px rgba(126,232,250,0.4), 0 0 60px rgba(126,232,250,0.1);
 }
 
-canvas {
+/* ── 重置 ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: var(--font-body);
+  color: #fff;
+}
+
+/* ── 主版面 ── */
+#app {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+}
+
+/* ── 左側 p5 畫布容器 ── */
+#canvas-container {
+  width: 25vw;
+  flex: none;
+}
+
+/* p5 canvas 自動撐滿容器 */
+#canvas-container canvas {
   display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ── 右側面板 ── */
+#panel {
+  width: var(--panel-width);
+  min-width: var(--panel-width);
+  height: 100vh;
+  background: var(--panel-bg);
+  border-left: 1px solid var(--panel-border);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  /* 進場動畫 */
+  animation: panelSlideIn 1.2s ease forwards;
+}
+
+@keyframes panelSlideIn {
+  from { transform: translateX(var(--panel-width)); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+/* 面板頂部 header */
+#panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--panel-border);
+  background: rgba(126,232,250,0.04);
+  flex-shrink: 0;
+}
+
+#panel-title {
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  text-shadow: var(--glow);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+#panel-close {
+  background: none;
+  border: 1px solid rgba(126,232,250,0.25);
+  color: var(--accent);
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.7rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+#panel-close:hover {
+  background: rgba(126,232,250,0.15);
+  box-shadow: var(--glow);
+}
+
+/* 面板內容區 */
+#panel-body {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 預設提示 */
+#default-hint {
+  position: absolute; inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 40px;
+  text-align: center;
+}
+
+.hint-star {
+  font-size: 3.5rem;
+  color: var(--accent);
+  text-shadow: var(--glow);
+  animation: pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,100% { transform: scale(1); opacity: 0.7; }
+  50%      { transform: scale(1.18); opacity: 1; }
+}
+
+#default-hint p {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.7;
+  color: rgba(255,255,255,0.85);
+}
+
+.hint-subtitle {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  letter-spacing: 0.2em;
+  color: rgba(126,232,250,0.45);
+  text-transform: uppercase;
+}
+
+/* iframe */
+#content-frame {
+  width: 100%; height: 100%;
+  border: none;
+  background: #fff;
+}
+
+/* ── 左上角標題 ── */
+#title-overlay {
+  position: fixed;
+  top: 22px; left: 26px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+#main-title {
+  font-family: var(--font-display);
+  font-size: 1.0rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  color: #fff;
+  text-shadow: 0 0 20px rgba(126,232,250,0.6);
+}
+
+#sub-title {
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.28em;
+  color: var(--accent);
+  opacity: 0.55;
+  margin-top: 3px;
+}
+
+/* ── 掃描線裝飾（覆蓋在畫布上） ── */
+#canvas-container::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0,0,0,0.04) 3px,
+    rgba(0,0,0,0.04) 4px
+  );
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ── RWD ── */
+@media (max-width: 768px) {
+  :root { --panel-width: 100vw; }
+  #app { flex-direction: column; }
+  #canvas-container { height: 55vh; }
+  #panel { height: 45vh; width: 100%; border-left: none; border-top: 1px solid var(--panel-border); }
 }

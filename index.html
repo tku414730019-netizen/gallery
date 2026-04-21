@@ -1,164 +1,70 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>數位藝廊：動態海草與幾何空間 — 程式設計期中報告</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      background: #15ff00;
-      color: #00fff2;
-      font-family: 'Segoe UI', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
-      overflow-x: hidden;
-    }
-
-    /* 畫布：固定滿版 */
-    #canvas-container {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100vw; height: 100vh;
-      z-index: 1;
-    }
-
-    /* ====================================================
-       iframe overlay：固定置中，z-index 在畫布之上
-       讓 iframe 浮在場景正中央，不影響畫布互動
-    ==================================================== */
-    #iframe-overlay {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100vw; height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 20;
-      pointer-events: none; /* 讓點擊穿透到 p5 畫布 */
-    }
-
-    /* iframe 容器：pointer-events 恢復（讓 iframe 可互動）*/
-    #iframe-container {
-      pointer-events: auto;
-      position: relative;
-    }
-
-    /* iframe 本身的關鍵樣式
-       - overflow: hidden  → 消除內部捲軸視覺
-       - scrolling=no 屬性在 HTML 中設定（舊版相容）
-    */
-    #iframe-container iframe {
-      display: block;
-      overflow: hidden;
-      /* 寬高由 sketch.js 動態設定 */
-    }
-
-    /* 關閉提示 */
-    #close-hint {
-      margin-top: 8px;
-      font-size: 11px;
-      color: rgba(100, 160, 255, 0.55);
-      letter-spacing: 0.08em;
-      pointer-events: none;
-      text-align: center;
-    }
-
-    /* ====================================================
-       頁面下方資訊區（滾動區域，在畫布下方）
-    ==================================================== */
-    #page-footer {
-      position: relative;
-      z-index: 5;
-      margin-top: 100vh;
-      background: rgba(6, 10, 24, 0.98);
-      border-top: 1px solid rgba(60, 100, 200, 0.22);
-      padding: 44px 6vw 64px;
-    }
-
-    #info-panel h2 {
-      font-size: 15px;
-      font-weight: 600;
-      color: #6eb4ff;
-      margin-bottom: 12px;
-      letter-spacing: 0.05em;
-    }
-
-    #info-panel .info-section {
-      margin-bottom: 32px;
-      max-width: 860px;
-    }
-
-    #info-panel p {
-      font-size: 14px;
-      line-height: 1.9;
-      color: rgba(180, 210, 255, 0.72);
-    }
-
-    #info-panel ul {
-      padding-left: 0;
-      list-style: none;
-    }
-
-    #info-panel ul li {
-      font-size: 13.5px;
-      line-height: 1.95;
-      color: rgba(160, 200, 255, 0.68);
-      padding: 5px 0;
-      border-bottom: 1px solid rgba(60, 100, 180, 0.11);
-    }
-
-    #info-panel ul li::before {
-      content: "›  ";
-      color: #4a9fff;
-    }
-
-    #info-panel strong {
-      color: #88c4ff;
-      font-weight: 600;
-    }
-
-    #info-panel code {
-      background: rgba(60, 100, 200, 0.18);
-      color: #a8d8ff;
-      padding: 1px 6px;
-      border-radius: 4px;
-      font-family: 'Consolas', 'Courier New', monospace;
-      font-size: 12.5px;
-    }
-
-    #page-credit {
-      margin-top: 32px;
-      font-size: 12px;
-      color: rgba(100, 140, 200, 0.40);
-      border-top: 1px solid rgba(60, 100, 180, 0.13);
-      padding-top: 16px;
-      letter-spacing: 0.05em;
-    }
-  </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>時光記憶圖譜：動態發展史</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- p5.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.3/p5.min.js"></script>
 </head>
 <body>
 
-  <!-- p5.js 畫布 -->
-  <div id="canvas-container"></div>
+  <!-- ╔══════════════════════════════════════╗ -->
+  <!-- ║  主版面：左邊 p5 畫布 + 右邊 iframe  ║ -->
+  <!-- ╚══════════════════════════════════════╝ -->
 
-  <!-- iframe 浮動 overlay（置中於螢幕）-->
-  <div id="iframe-overlay">
-    <div id="iframe-container">
-      <!-- iframe 由 sketch.js 的 p5.dom createElement() 動態建立並插入此處 -->
+  <div id="app">
+
+    <!-- 左側：p5.js 互動視覺 -->
+    <div id="canvas-container">
+      <!-- p5 畫布會由 sketch.js 注入此處 -->
     </div>
-    <div id="close-hint">再次點擊畫框或點擊空白處可關閉 · Click again to close</div>
+
+    <!-- 右側：iframe 顯示區 -->
+    <div id="panel">
+      <div id="panel-header">
+        <span id="panel-title">時光記憶圖譜</span>
+        <button id="panel-close" onclick="closePanel()">✕</button>
+      </div>
+      <div id="panel-body">
+        <div id="default-hint">
+          <div class="hint-star">✦</div>
+          <p>點擊星點<br>探索學習記憶</p>
+          <div class="hint-subtitle">Click a node to begin</div>
+        </div>
+        <iframe id="content-frame" src="" style="display:none;"></iframe>
+      </div>
+    </div>
+
   </div>
 
-  <!-- 頁尾資訊區（由 sketch.js setup() 中 p5.dom 填入內容）-->
-  <div id="page-footer">
-    <div id="info-panel"></div>
-    <div id="page-credit">
-      程式設計期中報告 · 數位藝廊：動態海草與幾何空間 · p5.js + p5.dom
-    </div>
+  <!-- 標題浮層 -->
+  <div id="title-overlay">
+    <div id="main-title">時光記憶圖譜</div>
+    <div id="sub-title">STELLAR LEARNING CHRONICLE</div>
   </div>
 
   <script src="sketch.js"></script>
+  <script>
+    // 關閉面板 / 回到預設提示
+    function closePanel() {
+      document.getElementById('content-frame').style.display = 'none';
+      document.getElementById('content-frame').src = '';
+      document.getElementById('default-hint').style.display = 'flex';
+      document.getElementById('panel-title').textContent = '時光記憶圖譜';
+      // 通知 p5 清除選中
+      if (window.clearSelectedNode) window.clearSelectedNode();
+    }
+
+    // 由 sketch.js 呼叫：載入 iframe
+    function loadWeek(url, title) {
+      document.getElementById('default-hint').style.display = 'none';
+      const frame = document.getElementById('content-frame');
+      frame.src = url;
+      frame.style.display = 'block';
+      document.getElementById('panel-title').textContent = title;
+    }
+  </script>
 </body>
 </html>

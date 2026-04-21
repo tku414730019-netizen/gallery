@@ -1,679 +1,633 @@
 // ============================================================
-// 數位藝廊：動態海草與幾何空間
-// Digital Gallery: Dynamic Seaweed & Geometric Space
-// 程式設計期中報告 — sketch.js  v2
-// ============================================================
-// 更新內容：
-//   - 視差偏移大幅增強（三層：遠/中/近，倍率 0.2 / 0.5 / 0.9）
-//   - 海葵改用仿附件 noise() + curveVertex 多層風格
-//   - 新增 Bubble 氣泡 + BubbleParticle 爆破粒子
-//   - 新增 Fish 游動小魚（vertex 魚身 + 魚尾）
-//   - iframe 展開至螢幕 80%，scrolling=no 消除捲軸
+//  sketch.js — 時光記憶圖譜
+//  主程式：銀河背景 · 絲帶時間軸 · 星點節點 · 粒子特效
 // ============================================================
 
-// ---------- 全域變數 ----------
-let anemones   = [];     // 海葵陣列
-let artworks   = [];     // 畫框陣列
-let bubbles    = [];     // 氣泡陣列
-let particles  = [];     // 爆破粒子陣列
-let fishes     = [];     // 小魚陣列
+// ── 全域設定 ──────────────────────────────────────────────
+let stars = [];         // 背景星星陣列
+let nodes = [];         // 學習節點（StarNode class）
+let particles = [];     // 滑鼠粒子
+let ripples = [];        // 點擊波紋
+let selectedNode = null; // 目前選中節點
 
-let iframeEl;
-let infoDiv;
-let selectedIndex  = -1;
-let iframeW = 0, iframeTargetW = 0;
-let iframeH = 0, iframeTargetH = 0;
+// 時間軸控制
+let timeOffset = 0;      // 讓時間軸微微擺動的偏移量
+let noiseScale = 0.003;  // Perlin noise 細膩度
 
-// 三層視差偏移（遠/中/近）
-let px1 = 0, py1 = 0;
-let px2 = 0, py2 = 0;
-let px3 = 0, py3 = 0;
+// 視差
+let parallaxX = 0, parallaxY = 0;
 
-let time = 0;
-
-// 海葵顏色系（對應附件三色）
-const ANEMONE_COLORS = ["#256755", "#008C73", "#8BC7B4"];
+// ── 週次資料（在此擴充更多週次）────────────────────────────
+// 📌 若要新增週次：在此陣列加一筆物件即可
+const weekData = [
+  { label: 'W1',  title: '第01週：魚缸',    url: 'https://tku414730019-netizen.github.io/pointy/',  color: '#7ee8fa' },
+  { label: 'W2',  title: '第02週：字牆',   url: 'https://tku414730019-netizen.github.io/wordsea/',  color: '#a78bfa' },
+  { label: 'W3',  title: '第03週：海葵',     url: 'https://tku414730019-netizen.github.io/waterweed/',  color: '#f0abfc' },
+  { label: 'W4',  title: '第04週：電流急急棒',     url: 'https://tku414730019-netizen.github.io/buzz/',  color: '#86efac' },
+  { label: 'W5',  title: '第05週：寶藏獵人',     url: 'https://tku414730019-netizen.github.io/dimonnn/',  color: '#fde68a' },
+  { label: 'W6',  title: '第06週：',   url: 'weeks/week6.html',  color: '#fb923c' },
+  { label: 'W7',  title: '第07週：',     url: 'weeks/week7.html',  color: '#f472b6' },
+];
 
 // ============================================================
-// setup()
+//  CLASS：StarNode — 每個學習週次節點
 // ============================================================
-function setup() {
-  let cnv = createCanvas(windowWidth, windowHeight);
-  cnv.parent('canvas-container');
+/*
+ *  負責：
+ *    - 儲存位置、週次資料、色彩
+ *    - 渲染：星形 + 光暈 + 呼吸動畫
+ *    - 互動：hover 發光放大、click 波紋
+ */
+class StarNode {
+  constructor(x, y, data, index) {
+    this.x = x;
+    this.y = y;
+    this.data = data;         // { label, title, url, color }
+    this.index = index;
 
-  // ---------- 初始化海葵（仿附件風格）----------
-  const baseSpacing = 38;
-  const count = floor(width / baseSpacing) + 2;
-  for (let i = 0; i < count; i++) {
-    anemones.push(new Anemone(
-      i / count,
-      i,
-      ANEMONE_COLORS[i % ANEMONE_COLORS.length],
-      random(26, 44),
-      random(height * 0.25, height * 0.42),
-      random(120, 260)
-    ));
+    this.baseR = 14;           // 基礎半徑
+    this.r = this.baseR;
+    this.isHovered = false;
+    this.isSelected = false;
+
+    // 呼吸動畫相位（每顆略有差異）
+    this.breathPhase = random(TWO_PI);
+    this.breathSpeed = random(0.025, 0.045);
+
+    // 能量環動畫
+    this.energyRings = [];
+    for (let i = 0; i < 3; i++) {
+      this.energyRings.push({ r: this.baseR, alpha: 0, delay: i * 18 });
+    }
+
+    // 花瓣展開狀態（hover 時觸發）
+    this.bloomAngle = 0;
+    this.blooming = false;
   }
 
-  // ---------- 初始化畫框 ----------
-  artworks.push(new Artwork(
-    "作業一：Buzz",
-    "https://tku414730019-netizen.github.io/buzz/",
-    width * 0.28, height * 0.40
-  ));
-  artworks.push(new Artwork(
-    "作業二：Dimonnn",
-    "https://tku414730019-netizen.github.io/dimonnn/",
-    width * 0.72, height * 0.40
-  ));
+  // ── 每幀更新 ────────────────────────────────────────────
+  update() {
+    // 呼吸動畫
+    let breath = sin(frameCount * this.breathSpeed + this.breathPhase);
 
-  // ---------- 初始化小魚 ----------
-  for (let i = 0; i < 6; i++) {
-    fishes.push(new Fish());
-  }
-
-  // ---------- 建立 iframe（p5.dom）----------
-  // scrolling="no" 搭配 overflow:hidden 消除多餘捲軸
-  iframeEl = createElement('iframe');
-  iframeEl.parent('iframe-container');
-  iframeEl.attribute('frameborder', '0');
-  iframeEl.attribute('allowfullscreen', '');
-  iframeEl.attribute('scrolling', 'no');
-  iframeEl.style('border-radius', '10px');
-  iframeEl.style('border', '1px solid rgba(100,200,255,0.3)');
-  iframeEl.style('background', '#ff5e00');
-  iframeEl.style('display', 'block');
-  iframeEl.style('overflow', 'hidden');
-  iframeEl.style('transition', 'box-shadow 0.4s ease');
-
-  // ---------- 建立資訊面板（p5.dom）----------
-  infoDiv = createDiv('');
-  infoDiv.parent('info-panel');
-  infoDiv.html(`
-    <div class="info-section">
-      <h2>✦ 設計理念</h2>
-      <p>本作品以「數位海洋展廳」為核心意象，將程式生成藝術與互動介面設計融合。深邃的深色背景象徵無邊的數位宇宙；仿附件風格的多層海葵以 <code>noise()</code> 驅動，搖曳出有機的生命感；漂浮的氣泡與游弋的小魚豐富了場景層次；幾何透視展廳框架呼應現代極簡主義美學，讓觀者在沉浸式體驗中感受科技與藝術的交融。</p>
-    </div>
-    <div class="info-section">
-      <h2>⟡ 技術解析</h2>
-      <ul>
-        <li><strong>vertex() 繪圖</strong>：海葵每層以 <code>curveVertex()</code> 搭配 Catmull-Rom 樣條，配合 <code>noise()</code> 產生有機擺動曲線；透視展廳牆面與地板由 <code>beginShape()/vertex()</code> 四邊形構成；小魚身體使用 <code>curveVertex()</code> 橢圓輪廓，魚尾使用 <code>vertex()</code> 三角形。</li>
-        <li><strong>class 物件導向</strong>：<code>Anemone</code>（海葵）、<code>Artwork</code>（畫框）、<code>Bubble</code>（氣泡）、<code>BubbleParticle</code>（粒子）、<code>Fish</code>（小魚）五個類別各自封裝屬性與行為。</li>
-        <li><strong>Array + for 迴圈</strong>：<code>anemones[]</code>、<code>bubbles[]</code>、<code>fishes[]</code>、<code>particles[]</code> 四個陣列搭配 <code>for</code> 迴圈批次管理所有動態物件的生命週期。</li>
-        <li><strong>p5.dom iframe</strong>：<code>createElement('iframe')</code> 動態建立，點擊畫框後 <code>attribute('src', url)</code> 更新內容；<code>scrolling="no"</code> 消除內嵌捲軸；<code>lerp()</code> 插值實現 80vw × 80vh 平滑展開動畫。</li>
-        <li><strong>三層視差效果</strong>：場景分為遠景（展廳 ×0.2）、中景（海葵 ×0.5）、近景（畫框 ×0.9）三層，各以不同倍率 <code>map(mouseX...)</code> 偏移，大幅強化景深立體感。</li>
-        <li><strong>Spotlight 燈光</strong>：<code>drawingContext.createRadialGradient()</code> 產生放射狀半透明橢圓光暈，模擬投射燈效果。</li>
-      </ul>
-    </div>
-  `);
-
-  colorMode(RGB, 255);
-  frameRate(60);
-}
-
-// ============================================================
-// draw() — 主迴圈
-// ============================================================
-function draw() {
-  background(6, 8, 18);
-
-  // ---------- 三層視差計算 ----------
-  // 遠景（展廳牆面）：偏移倍率最小 → 感覺最遠
-  let tpx = map(mouseX, 0, width,  -90, 90);
-  let tpy = map(mouseY, 0, height, -45, 45);
-  px1 = lerp(px1, tpx * 0.2, 0.04);  py1 = lerp(py1, tpy * 0.2, 0.04);
-  // 中景（海葵）：中等偏移
-  px2 = lerp(px2, tpx * 0.5, 0.05);  py2 = lerp(py2, tpy * 0.5, 0.05);
-  // 近景（畫框）：偏移最大 → 感覺最近
-  px3 = lerp(px3, tpx * 0.9, 0.06);  py3 = lerp(py3, tpy * 0.9, 0.06);
-
-  // ---------- 遠景：透視展廳 ----------
-  drawGallerySpace(px1, py1);
-
-  // ---------- 中景：海葵（座標原點移至底部）----------
-  push();
-  translate(px2, py2);
-  translate(0, height);
-  for (let i = 0; i < anemones.length; i++) {
-    anemones[i].display();
-  }
-  pop();
-
-  // ---------- 氣泡 ----------
-  updateBubbles();
-
-  // ---------- 小魚 ----------
-  for (let i = 0; i < fishes.length; i++) {
-    fishes[i].update();
-    fishes[i].display();
-  }
-
-  // ---------- 近景：畫框 + Spotlight ----------
-  for (let i = 0; i < artworks.length; i++) {
-    drawSpotlight(artworks[i].x + px3 * 0.3, artworks[i].y - 10);
-    artworks[i].display(i === selectedIndex, px3, py3);
-  }
-
-  // ---------- iframe 尺寸動畫 ----------
-  iframeW = lerp(iframeW, iframeTargetW, 0.10);
-  iframeH = lerp(iframeH, iframeTargetH, 0.10);
-  iframeEl.style('width',  floor(iframeW) + 'px');
-  iframeEl.style('height', floor(iframeH) + 'px');
-
-  // ---------- 標題文字 ----------
-  drawTitle();
-
-  time += 0.007;
-}
-
-// ============================================================
-// drawGallerySpace(px, py) — 透視展廳（遠景層）
-// ============================================================
-function drawGallerySpace(px, py) {
-  push();
-  translate(px, py);
-  let cx = width / 2;
-  let cy = height * 0.55;
-
-  // 後牆
-  fill(10, 13, 26);
-  noStroke();
-  rect(width * 0.1, height * 0.08, width * 0.8, height * 0.6);
-
-  // 地板（透視四邊形）
-  fill(12, 16, 35);
-  stroke(28, 48, 88, 70);
-  strokeWeight(0.5);
-  beginShape();
-    vertex(0, height);
-    vertex(width, height);
-    vertex(width * 0.85, cy);
-    vertex(width * 0.15, cy);
-  endShape(CLOSE);
-
-  // 縱向格線
-  stroke(35, 65, 115, 45);
-  strokeWeight(0.7);
-  for (let i = 0; i <= 12; i++) {
-    let t  = i / 12;
-    let bx = lerp(0, width, t);
-    let tx = lerp(width * 0.15, width * 0.85, t);
-    line(bx, height, tx, cy);
-  }
-  // 橫向格線
-  for (let d = 0.08; d < 1; d += 0.13) {
-    let y  = lerp(cy, height, d);
-    let x1 = lerp(width * 0.15, 0, d);
-    let x2 = lerp(width * 0.85, width, d);
-    line(x1, y, x2, y);
-  }
-
-  // 左右牆
-  fill(9, 12, 24);
-  noStroke();
-  beginShape();
-    vertex(0, 0); vertex(width * 0.15, height * 0.08);
-    vertex(width * 0.15, cy); vertex(0, cy);
-  endShape(CLOSE);
-  beginShape();
-    vertex(width, 0); vertex(width * 0.85, height * 0.08);
-    vertex(width * 0.85, cy); vertex(width, cy);
-  endShape(CLOSE);
-
-  // 天花板線
-  stroke(55, 95, 155, 90);
-  strokeWeight(1);
-  line(width * 0.15, height * 0.08, width * 0.85, height * 0.08);
-  line(width * 0.15, height * 0.08, 0, 0);
-  line(width * 0.85, height * 0.08, width, 0);
-  pop();
-}
-
-// ============================================================
-// drawSpotlight(x, y)
-// ============================================================
-function drawSpotlight(x, y) {
-  push();
-  let grad = drawingContext.createRadialGradient(x, y, 0, x, y + 90, 200);
-  grad.addColorStop(0,    'rgba(130,210,255,0.20)');
-  grad.addColorStop(0.35, 'rgba(80,160,255,0.10)');
-  grad.addColorStop(1,    'rgba(0,0,0,0)');
-  drawingContext.fillStyle = grad;
-  drawingContext.beginPath();
-  drawingContext.ellipse(x, y + 90, 170, 230, 0, 0, Math.PI * 2);
-  drawingContext.fill();
-  pop();
-}
-
-// ============================================================
-// drawTitle()
-// ============================================================
-function drawTitle() {
-  push();
-  textAlign(CENTER, TOP);
-  fill(175, 215, 255, 215);
-  textSize(min(width * 0.03, 28));
-  textStyle(BOLD);
-  text("數位藝廊 · DIGITAL GALLERY", width / 2, 22);
-  fill(100, 158, 220, 140);
-  textSize(min(width * 0.015, 13));
-  textStyle(ITALIC);
-  text("動態海草與幾何空間  ·  Dynamic Seaweed & Geometric Space", width / 2, 56);
-  pop();
-}
-
-// ============================================================
-// updateBubbles() — 氣泡生命週期管理
-// ============================================================
-function updateBubbles() {
-  if (random() < 0.055) bubbles.push(new Bubble());
-
-  for (let i = bubbles.length - 1; i >= 0; i--) {
-    let b = bubbles[i];
-    b.update();
-    if (b.isDead()) {
-      for (let k = 0; k < 10; k++) {
-        particles.push(new BubbleParticle(b.x, b.y, b.opacity));
-      }
-      bubbles.splice(i, 1);
+    if (this.isHovered || this.isSelected) {
+      this.r = lerp(this.r, this.baseR * 1.8 + breath * 3, 0.12);
+      this.blooming = true;
     } else {
-      b.display();
+      this.r = lerp(this.r, this.baseR + breath * 2, 0.08);
+      this.blooming = false;
+      this.bloomAngle = lerp(this.bloomAngle, 0, 0.1);
     }
-  }
 
-  for (let i = particles.length - 1; i >= 0; i--) {
-    particles[i].update();
-    particles[i].display();
-    if (particles[i].isDead()) particles.splice(i, 1);
-  }
-}
-
-// ============================================================
-// mousePressed()
-// ============================================================
-function mousePressed() {
-  for (let i = 0; i < artworks.length; i++) {
-    if (artworks[i].isClicked(mouseX, mouseY, px3, py3)) {
-      if (selectedIndex === i) {
-        selectedIndex = -1;
-        iframeTargetW = 0;
-        iframeTargetH = 0;
-        iframeEl.attribute('src', 'about:blank');
-        iframeEl.style('box-shadow', 'none');
-      } else {
-        selectedIndex = i;
-        iframeEl.attribute('src', artworks[i].url);
-        // 展開至螢幕 80%（消除捲軸的關鍵）
-        iframeTargetW = windowWidth  * 0.80;
-        iframeTargetH = windowHeight * 0.80;
-        iframeEl.style('box-shadow', '0 0 60px rgba(60,150,255,0.40)');
-      }
-      return;
+    if (this.blooming) {
+      this.bloomAngle = lerp(this.bloomAngle, TWO_PI, 0.08);
     }
-  }
-  if (selectedIndex !== -1) {
-    selectedIndex = -1;
-    iframeTargetW = 0;
-    iframeTargetH = 0;
-    iframeEl.attribute('src', 'about:blank');
-    iframeEl.style('box-shadow', 'none');
-  }
-}
 
-// ============================================================
-// windowResized()
-// ============================================================
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-  if (artworks.length >= 2) {
-    artworks[0].x = width * 0.28;  artworks[0].y = height * 0.40;
-    artworks[1].x = width * 0.72;  artworks[1].y = height * 0.40;
-  }
-  if (selectedIndex !== -1) {
-    iframeTargetW = windowWidth  * 0.80;
-    iframeTargetH = windowHeight * 0.80;
-  }
-}
-
-// ============================================================
-// ★ CLASS: Anemone — 海葵（深度仿附件 noise 多層風格）
-// 技術重點：
-//   - noise(i/400, frameCount/100, id) 產生有機偏移（非純 sin）
-//   - 4 層疊加，每層 xOffset 偏移 + alpha 遞減
-//   - curveVertex 首尾各加控制點（Catmull-Rom 規範）
-//   - 滑鼠距離影響（distFactor × heightFactor）同附件邏輯
-// ============================================================
-class Anemone {
-  constructor(ratio, id, colorStr, sw, h, amp) {
-    this.ratio    = ratio;
-    this.id       = id;
-    this.colorStr = colorStr;
-    this.sw       = sw;
-    this.h        = h;
-    this.amp      = amp;
-  }
-
-  display() {
-    let xx = this.ratio * width;
-    const layers = 4;
-    const PTS    = 280;
-
-    for (let L = 0; L < layers; L++) {
-      let xOffset  = map(L, 0, layers - 1, -70, 6);
-      let baseCol  = color(this.colorStr);
-      baseCol.setAlpha(155 - L * 28);
-
-      noFill();
-      strokeWeight(this.sw * map(L, 0, layers - 1, 1, 0.45));
-      stroke(baseCol);
-
-      beginShape();
-      curveVertex(xx + xOffset, 0); // 首控制點
-
-      for (let i = 0; i < PTS; i++) {
-        let progress = i / PTS;
-
-        // noise() 有機偏移（附件核心邏輯）
-        let deltaFactor = map(i, 0, 50, 0, 1, true);
-        let deltaX = deltaFactor *
-          (noise(i / 400, frameCount / 100 * 0.5, this.id) - 0.5) * this.amp;
-
-        // 滑鼠互動（補償視差偏移 px2）
-        let globalMX   = mouseX - px2;
-        let influenceR = width * 0.30;
-        let distToMouse = abs(globalMX - xx);
-        let normDist   = constrain(1 - distToMouse / influenceR, 0, 1);
-        let distFactor = pow(normDist, 2);
-        let heightFactor = pow(progress, 1.8);
-        let yNorm      = mouseY / height;
-        let distFromC  = abs(yNorm - 0.5);
-        let mouseYFact = pow(1 - distFromC * 2, 2);
-        let vertInteract = heightFactor * mouseYFact;
-        let mouseDelta = map(mouseX, 0, width, -180, 180);
-        let mouseEffect  = mouseDelta * distFactor * vertInteract;
-
-        let yy = -progress * this.h;
-        curveVertex(xx + deltaX + xOffset + mouseEffect, yy);
-
-        if (i === PTS - 1) {
-          curveVertex(xx + deltaX + xOffset + mouseEffect, yy); // 尾控制點
+    // 能量環擴散
+    for (let ring of this.energyRings) {
+      if (this.isSelected || this.isHovered) {
+        ring.r += 1.2;
+        ring.alpha -= 4;
+        if (ring.r > this.baseR * 5) {
+          ring.r = this.baseR + random(-2, 2);
+          ring.alpha = 180;
         }
+      } else {
+        ring.r = lerp(ring.r, this.baseR, 0.06);
+        ring.alpha = lerp(ring.alpha, 0, 0.08);
       }
-      endShape();
+    }
+  }
+
+  // ── 渲染 ────────────────────────────────────────────────
+  draw() {
+    push();
+    translate(this.x, this.y);
+
+    let c = color(this.data.color);
+
+    // 1. 外層光暈（大）
+    if (this.isHovered || this.isSelected) {
+      noStroke();
+      let glowR = this.r * 3.5;
+      for (let i = 5; i > 0; i--) {
+        let a = map(i, 5, 0, 0, 60);
+        fill(red(c), green(c), blue(c), a);
+        ellipse(0, 0, glowR * (i / 3), glowR * (i / 3));
+      }
+    }
+
+    // 2. 能量環
+    noFill();
+    for (let ring of this.energyRings) {
+      if (ring.alpha > 2) {
+        stroke(red(c), green(c), blue(c), ring.alpha);
+        strokeWeight(1.2);
+        ellipse(0, 0, ring.r * 2, ring.r * 2);
+      }
+    }
+
+    // 3. 花瓣（hover 時展開）
+    
+
+    // 4. 主體：多邊形星形
+    this._drawStar(0, 0, this.r * 0.45, this.r, 5);
+
+    // 5. 中心亮點
+    noStroke();
+    fill(255, 255, 255, 220);
+    ellipse(0, 0, this.r * 0.3, this.r * 0.3);
+
+    // 6. 週次標籤
+    this._drawLabel();
+
+    pop();
+  }
+
+  // ── 畫星形（五芒星）────────────────────────────────────
+  _drawStar(x, y, r1, r2, points) {
+    let c = color(this.data.color);
+    let alpha = this.isHovered || this.isSelected ? 255 : 200;
+
+    // 填色
+    fill(red(c), green(c), blue(c), alpha);
+    stroke(255, 255, 255, 160);
+    strokeWeight(this.isHovered ? 1.8 : 1.0);
+
+    // 🔑 beginShape + vertex 畫星形
+    beginShape();
+    for (let i = 0; i < points * 2; i++) {
+      let angle = (PI / points) * i - HALF_PI;
+      let r = (i % 2 === 0) ? r2 : r1;
+      vertex(x + cos(angle) * r, y + sin(angle) * r);
+    }
+    endShape(CLOSE);
+  }
+
+  // ── 標籤 ────────────────────────────────────────────────
+  _drawLabel() {
+    let c = color(this.data.color);
+    noStroke();
+    textAlign(CENTER, CENTER);
+
+    if (this.isHovered || this.isSelected) {
+      // 展開顯示完整標題
+      textFont('Orbitron, sans-serif');
+      textSize(9.5);
+      fill(red(c), green(c), blue(c), 230);
+      text(this.data.label, 0, -this.r * 1.7);
+
+      // 標題背景
+      let tw = textWidth(this.data.title) + 14;
+      fill(4, 8, 26, 200);
+      noStroke();
+      rectMode(CENTER);
+      rect(0, this.r * 2.2, tw, 20, 4);
+
+      textSize(9);
+      fill(255, 255, 255, 210);
+      text(this.data.title, 0, this.r * 2.2);
+    } else {
+      textFont('Orbitron, sans-serif');
+      textSize(8.5);
+      fill(red(c), green(c), blue(c), 180);
+      text(this.data.label, 0, -this.r * 1.6);
+    }
+  }
+
+  // ── 碰撞偵測 ────────────────────────────────────────────
+  isOver(mx, my) {
+    return dist(mx, my, this.x, this.y) < this.r + 8;
+  }
+
+  // ── 點擊處理 ────────────────────────────────────────────
+  onClick() {
+    this.isSelected = true;
+    // 觸發 iframe 載入（呼叫 index.html 中的函式）
+    if (window.loadWeek) {
+      window.loadWeek(this.data.url, this.data.title);
+    }
+    // 產生點擊波紋
+    ripples.push(new Ripple(this.x, this.y, this.data.color));
+    // 爆開粒子
+    for (let i = 0; i < 18; i++) {
+      particles.push(new Particle(this.x, this.y, this.data.color, 'burst'));
     }
   }
 }
 
 // ============================================================
-// ★ CLASS: Bubble — 氣泡
+//  CLASS：Particle — 滑鼠粒子 / 爆炸粒子
 // ============================================================
-class Bubble {
-  constructor() {
-    this.x       = random(width);
-    this.y       = height + 10;
-    this.radius  = random(6, 22);
-    this.speedY  = random(0.6, 1.6) * 1.6;
-    this.opacity = random(70, 190);
-    this.life    = 0;
-    this.maxLife = random(280, 480);
-    this.popY    = random() < 0.7
-      ? random(height * 0.08, height * 0.88)
-      : -60;
-  }
-
-  update() { this.y -= this.speedY; this.life++; }
-
-  isDead() {
-    return this.y < this.popY || this.y < -this.radius || this.life > this.maxLife;
-  }
-
-  display() {
-    let a = this.opacity * (1 - this.life / this.maxLife);
-    noStroke();
-    fill(255, a);
-    circle(this.x, this.y, this.radius * 2);
-    fill(255, a * 0.55);
-    circle(
-      this.x - this.radius * 0.38,
-      this.y - this.radius * 0.38,
-      this.radius * 0.48
-    );
-  }
-}
-
-// ============================================================
-// ★ CLASS: BubbleParticle — 氣泡爆破粒子
-// ============================================================
-class BubbleParticle {
-  constructor(x, y, opacity) {
+class Particle {
+  constructor(x, y, col, type = 'trail') {
     this.x = x; this.y = y;
-    let angle = random(TWO_PI);
-    let spd   = random(1.5, 4);
-    this.vx = cos(angle) * spd;
-    this.vy = sin(angle) * spd;
-    this.life = 0;
-    this.maxLife = random(10, 18);
-    this.opacity = opacity * 0.7;
-  }
-  update() { this.x += this.vx; this.y += this.vy; this.life++; }
-  isDead() { return this.life >= this.maxLife; }
-  display() {
-    let a = this.opacity * (1 - this.life / this.maxLife);
-    noStroke();
-    fill(200, 230, 255, a);
-    circle(this.x, this.y, 3);
-  }
-}
+    this.col = col || '#7ee8fa';
+    this.type = type;
 
-// ============================================================
-// ★ CLASS: Fish — 游動小魚
-// 技術重點：
-//   - 魚身：curveVertex() 多點橢圓輪廓（可自由變形）
-//   - 魚尾：vertex() 三角形（三個頂點精確控制）
-//   - sin() 驅動上下擺動 + 魚尾左右搖擺
-//   - dir 控制朝向，scale(-1,1) 水平翻轉
-// ============================================================
-class Fish {
-  constructor() { this.reset(true); }
-
-  reset(randomY = false) {
-    this.dir  = random() < 0.5 ? 1 : -1;
-    this.x    = this.dir === 1 ? -60 : width + 60;
-    this.y    = randomY ? random(height * 0.10, height * 0.75) : this.y;
-    this.vx   = this.dir * random(0.6, 1.8);
-    this.size = random(14, 32);
-    this.col  = color(
-      random(30, 100), random(140, 220), random(180, 255), random(160, 215)
-    );
-    this.wobbleOffset = random(100);
-    this.wobbleAmp    = random(4, 12);
-    this.wobbleSpeed  = random(1.5, 3.0);
-    this.tailPhase    = random(100);
+    if (type === 'burst') {
+      let angle = random(TWO_PI);
+      let spd = random(2, 6);
+      this.vx = cos(angle) * spd;
+      this.vy = sin(angle) * spd;
+      this.life = 255;
+      this.decay = random(4, 9);
+      this.size = random(2, 6);
+    } else {
+      // trail：跟隨滑鼠
+      this.vx = random(-0.6, 0.6);
+      this.vy = random(-1.5, -0.3);
+      this.life = 180;
+      this.decay = random(3, 7);
+      this.size = random(1, 3.5);
+    }
   }
 
   update() {
     this.x += this.vx;
-    this.y += sin(time * this.wobbleSpeed + this.wobbleOffset) * 0.4;
-    if (this.x > width + 80 || this.x < -80) this.reset();
+    this.y += this.vy;
+    this.vy += 0.05; // 重力
+    this.life -= this.decay;
+    this.size *= 0.96;
   }
 
-  display() {
-    push();
-    translate(this.x, this.y);
-    if (this.dir === -1) scale(-1, 1);
-
-    let s = this.size;
-    let tailSwing = sin(time * this.wobbleSpeed * 2 + this.tailPhase) * 0.38;
-
-    // ---- 魚尾（vertex 三角形）----
-    fill(red(this.col), green(this.col), blue(this.col), alpha(this.col) * 0.7);
+  draw() {
+    if (this.life <= 0) return;
+    let c = color(this.col);
     noStroke();
-    push();
-    translate(-s * 0.6, 0);
-    rotate(tailSwing);
-    beginShape();
-      vertex(0,       0);
-      vertex(-s * 0.7,  s * 0.42);
-      vertex(-s * 0.7, -s * 0.42);
-    endShape(CLOSE);
-    pop();
-
-    // ---- 魚身（curveVertex 橢圓輪廓）----
-    fill(this.col);
-    noStroke();
-    beginShape();
-      curveVertex( s * 0.5,  0);
-      curveVertex( s * 0.5,  0);
-      curveVertex( s * 0.2, -s * 0.28);
-      curveVertex(-s * 0.3, -s * 0.28);
-      curveVertex(-s * 0.55, 0);
-      curveVertex(-s * 0.3,  s * 0.28);
-      curveVertex( s * 0.2,  s * 0.28);
-      curveVertex( s * 0.5,  0);
-      curveVertex( s * 0.5,  0);
-    endShape(CLOSE);
-
-    // ---- 魚眼 ----
-    fill(255, 255, 255, 200);
-    circle(s * 0.28, -s * 0.10, s * 0.22);
-    fill(10, 30, 60, 220);
-    circle(s * 0.30, -s * 0.10, s * 0.12);
-
-    // ---- 背鰭（vertex 小三角）----
-    fill(red(this.col), green(this.col), blue(this.col) + 20, alpha(this.col) * 0.6);
-    beginShape();
-      vertex( s * 0.1, -s * 0.28);
-      vertex(-s * 0.1, -s * 0.52);
-      vertex(-s * 0.3, -s * 0.28);
-    endShape(CLOSE);
-
-    pop();
+    fill(red(c), green(c), blue(c), this.life);
+    ellipse(this.x, this.y, this.size, this.size);
   }
+
+  isDead() { return this.life <= 0 || this.size < 0.3; }
 }
 
 // ============================================================
-// ★ CLASS: Artwork — 畫框
+//  CLASS：Ripple — 點擊波紋
 // ============================================================
-class Artwork {
-  constructor(title, url, x, y) {
-    this.title  = title;
-    this.url    = url;
-    this.x      = x;
-    this.y      = y;
-    this.w      = min(width * 0.28, 260);
-    this.h      = min(height * 0.34, 195);
-    this.hoverAnim = 0;
+class Ripple {
+  constructor(x, y, col) {
+    this.x = x; this.y = y;
+    this.col = col;
+    this.r = 10;
+    this.maxR = 90;
+    this.life = 255;
+    this.speed = 3.5;
   }
 
-  // isClicked — 加入視差校正，點擊區域與視覺吻合
-  isClicked(mx, my, px, py) {
-    let ox = this.x + px * 0.3;
-    let oy = this.y + py * 0.2;
-    return (
-      mx > ox - this.w / 2 && mx < ox + this.w / 2 &&
-      my > oy - this.h / 2 && my < oy + this.h / 2
-    );
+  update() {
+    this.r += this.speed;
+    this.life = map(this.r, 10, this.maxR, 255, 0);
+    this.speed *= 0.97;
   }
 
-  display(isSelected, px, py) {
-    push();
-    let ox = this.x + px * 0.3;
-    let oy = this.y + py * 0.2;
-    let hw = this.w / 2;
-    let hh = this.h / 2;
-
-    let isHover = (
-      mouseX > ox - hw - 5 && mouseX < ox + hw + 5 &&
-      mouseY > oy - hh - 5 && mouseY < oy + hh + 5
-    );
-    this.hoverAnim = lerp(this.hoverAnim, isHover ? 1 : 0, 0.1);
-
-    // 光暈
-    let ga = isSelected ? 210 : map(this.hoverAnim, 0, 1, 40, 130);
-    let gc = isSelected ? color(80, 160, 255, ga) : color(60, 120, 220, ga);
-    let gs = isSelected ? 20 : 8 + this.hoverAnim * 6;
-    for (let g = gs; g > 0; g -= 3) {
-      noFill();
-      stroke(red(gc), green(gc), blue(gc), ga * (g / gs) * 0.4);
-      strokeWeight(g);
-      rect(ox - hw, oy - hh, this.w, this.h, 4);
-    }
-
-    // 內部（vertex 矩形）
-    fill(14, 18, 38, 230);
-    stroke(isSelected ? color(80,160,255,180) : color(50,90,160,120));
-    strokeWeight(isSelected ? 2 : 1);
-    beginShape();
-      vertex(ox - hw, oy - hh);
-      vertex(ox + hw, oy - hh);
-      vertex(ox + hw, oy + hh);
-      vertex(ox - hw, oy + hh);
-    endShape(CLOSE);
-
-    // 邊框條
-    let fw = 6 + this.hoverAnim * 2;
-    fill(isSelected ? color(60,130,220,160) : color(40,70,130,100));
-    noStroke();
-    rect(ox - hw, oy - hh,      this.w, fw,  4, 4, 0, 0);
-    rect(ox - hw, oy + hh - fw, this.w, fw,  0, 0, 4, 4);
-    rect(ox - hw, oy - hh, fw, this.h);
-    rect(ox + hw - fw, oy - hh, fw, this.h);
-
-    // 角標（vertex L 形）
-    stroke(isSelected ? color(120,200,255,200) : color(80,140,200,140));
-    strokeWeight(2);
+  draw() {
+    let c = color(this.col);
     noFill();
-    let cs = 16;
-    [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([sx, sy]) => {
-      let cx2 = ox + sx * (hw - 4);
-      let cy2 = oy + sy * (hh - 4);
-      beginShape();
-        vertex(cx2, cy2 - sy * cs);
-        vertex(cx2, cy2);
-        vertex(cx2 - sx * cs, cy2);
-      endShape();
-    });
+    stroke(red(c), green(c), blue(c), this.life);
+    strokeWeight(2.5);
+    ellipse(this.x, this.y, this.r * 2, this.r * 2);
 
-    // 未選中：動態背景 + 提示
-    if (!isSelected) {
-      noStroke();
-      for (let row = 0; row < 8; row++) {
-        let rowY = map(row, 0, 7, oy - hh + 14, oy + hh - 14);
-        let a    = 28 + sin(time * 2 + row * 0.5) * 14;
-        fill(38, 78, 155, a);
-        rect(ox - hw + 10, rowY, this.w - 20, 3, 1);
-      }
-      let pr = 18 + sin(time * 3) * 4;
-      stroke(100, 180, 255, 115 + sin(time * 3) * 50);
-      strokeWeight(1.5);
-      noFill();
-      circle(ox, oy, pr * 2);
-      stroke(100, 180, 255, 75);
-      strokeWeight(1);
-      circle(ox, oy, pr * 2.8);
-      fill(120, 180, 255, 155 + sin(time * 2) * 40);
-      noStroke();
-      textAlign(CENTER, CENTER);
-      textSize(11);
-      text("CLICK TO VIEW", ox, oy + hh * 0.55);
-    }
+    // 第二圈（稍慢）
+    stroke(red(c), green(c), blue(c), this.life * 0.5);
+    strokeWeight(1.2);
+    ellipse(this.x, this.y, (this.r * 2) * 0.65, (this.r * 2) * 0.65);
+  }
 
-    // 標題
-    fill(178, 210, 255, 200);
+  isDead() { return this.r >= this.maxR; }
+}
+
+// ============================================================
+//  CLASS：BackgroundStar — 背景星星
+// ============================================================
+class BackgroundStar {
+  constructor() { this.reset(); }
+
+  reset() {
+    this.x = random(width);
+    this.y = random(height);
+    this.size = random(0.5, 2.8);
+    this.baseAlpha = random(40, 210);
+    this.alpha = this.baseAlpha;
+    this.twinkleSpeed = random(0.01, 0.04);
+    this.twinklePhase = random(TWO_PI);
+    // 視差層次（0=慢/遠, 1=快/近）
+    this.layer = random();
+  }
+
+  update(px, py) {
+    // 閃爍
+    this.alpha = this.baseAlpha + sin(frameCount * this.twinkleSpeed + this.twinklePhase) * 60;
+    this.alpha = constrain(this.alpha, 0, 255);
+
+    // 視差偏移（根據滑鼠位置）
+    this.drawX = this.x + px * this.layer * 18;
+    this.drawY = this.y + py * this.layer * 10;
+  }
+
+  draw() {
     noStroke();
-    textAlign(CENTER, TOP);
-    textSize(13);
-    textStyle(BOLD);
-    text(this.title, ox, oy + hh + 10);
-    if (isSelected) {
-      fill(100, 160, 255, 145);
-      textSize(10);
-      textStyle(NORMAL);
-      text("▶ 已載入 iframe · 點擊關閉", ox, oy + hh + 28);
+    // 大星星加一點光暈
+    if (this.size > 2) {
+      fill(180, 220, 255, this.alpha * 0.2);
+      ellipse(this.drawX, this.drawY, this.size * 4, this.size * 4);
     }
-    pop();
+    fill(220, 235, 255, this.alpha);
+    ellipse(this.drawX, this.drawY, this.size, this.size);
   }
 }
+
 // ============================================================
-// 程式碼結束 — 期中報告 v2
+//  p5.js 核心函式
 // ============================================================
+
+// ── setup ────────────────────────────────────────────────
+function setup() {
+  // 把 canvas 放進 #canvas-container
+  let container = document.getElementById('canvas-container');
+  let cnv = createCanvas(container.offsetWidth, container.offsetHeight);
+  cnv.parent('canvas-container');
+
+  // 建立背景星星
+  for (let i = 0; i < 320; i++) {
+    stars.push(new BackgroundStar());
+  }
+
+  // 計算節點位置（沿時間軸分佈）並建立 StarNode
+  buildNodes();
+
+  textFont('sans-serif');
+}
+
+// ── buildNodes：計算時間軸路徑並放置節點 ────────────────
+/*
+ *  🔑 此段是「時間軸生成核心」
+ *  使用 for 迴圈 + getTimelinePoint() 在路徑上計算等距節點位置
+ */
+function buildNodes() {
+  nodes = [];
+  let total = weekData.length;
+  for (let i = 0; i < total; i++) {
+    // t 從 0.08 到 0.92，避免節點貼邊
+    let t = map(i, 0, total - 1, 0.08, 0.92);
+    let pos = getTimelinePoint(t);
+    nodes.push(new StarNode(pos.x, pos.y, weekData[i], i));
+  }
+}
+
+// ── getTimelinePoint：依 t(0-1) 回傳時間軸上的 (x,y) ────
+/*
+ *  🔑 時間軸的定義：
+ *    - x 方向：由左到右（進度感）
+ *    - y 方向：用 sin + Perlin noise 產生「絲帶波動」
+ */
+function getTimelinePoint(t) {
+  let margin = 80;
+
+  // ✅ X 固定在左側 1/4 區域
+  let x = width * 0.25 
+        + sin(t * PI * 2.2 + timeOffset * 0.05) * 50
+        +50;
+
+  // ✅ Y：由下往上
+  let y = lerp(height - margin, margin, t);
+
+  return createVector(x, y);
+}
+
+// ── draw ─────────────────────────────────────────────────
+function draw() {
+  // 畫布尺寸跟容器同步
+  resizeIfNeeded();
+
+  // 視差偏移計算（-1 ~ 1）
+  parallaxX = map(mouseX, 0, width, -1, 1);
+  parallaxY = map(mouseY, 0, height, -1, 1);
+
+  // 時間推進
+  timeOffset += 0.25;
+
+  // 1. 銀河背景
+  drawGalaxy();
+
+  // 2. 更新 & 繪製背景星星
+  for (let s of stars) {
+    s.update(parallaxX, parallaxY);
+    s.draw();
+  }
+
+  // 3. 星雲霧氣
+  drawNebula();
+
+  // 4. 絲帶時間軸（核心 vertex 路徑）
+  drawTimeline();
+
+  // 5. 連接線（星座風格）
+  drawConstellationLines();
+
+  // 6. 節點更新 & 繪製
+  updateNodes();
+
+  // 7. 波紋
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    ripples[i].update();
+    ripples[i].draw();
+    if (ripples[i].isDead()) ripples.splice(i, 1);
+  }
+
+  // 8. 粒子
+  spawnTrailParticle();
+  for (let i = particles.length - 1; i >= 0; i--) {
+    particles[i].update();
+    particles[i].draw();
+    if (particles[i].isDead()) particles.splice(i, 1);
+  }
+}
+
+// ── drawGalaxy：深色漸層背景 ─────────────────────────────
+function drawGalaxy() {
+  // 基底
+  background(2, 3, 15);
+
+  // 中央帶狀星雲暈光（微視差）
+  let cx = width * 0.5 + parallaxX * 5;
+  let cy = height * 0.5 + parallaxY * 3;
+
+  noStroke();
+  for (let i = 4; i > 0; i--) {
+    let r = width * 0.85 * (i / 4);
+    let a = map(i, 4, 0, 6, 0);
+    fill(20, 12, 60, a);
+    ellipse(cx, cy, r, r * 0.38);
+  }
+}
+
+// ── drawNebula：柔霧星雲 ──────────────────────────────────
+function drawNebula() {
+  noStroke();
+  // 藍紫霧
+  let t = frameCount * 0.003;
+  let nx = width * 0.35 + sin(t * 0.7) * 30 + parallaxX * 8;
+  let ny = height * 0.45 + cos(t * 0.5) * 20 + parallaxY * 5;
+
+  fill(80, 40, 180, 8);
+  ellipse(nx, ny, width * 0.6, height * 0.4);
+
+  // 青色霧
+  fill(30, 120, 160, 7);
+  ellipse(width * 0.65 - parallaxX * 6, height * 0.55 - parallaxY * 4, width * 0.45, height * 0.35);
+}
+
+// ── drawTimeline：核心絲帶時間軸 ─────────────────────────
+/*
+ *  🔑 此段是「vertex 時間軸」的核心
+ *    - 用 for 迴圈 + getTimelinePoint() 逐點取樣
+ *    - 用 beginShape / vertex / endShape 畫出曲線
+ *    - 畫三層：粗光暈 → 中等帶透明 → 細亮線
+ */
+function drawTimeline() {
+  let steps = 120; // 曲線細膩度
+
+  // ── 層 1：寬光暈（絲帶感）────────────────────────────
+  noFill();
+  beginShape();
+  for (let i = 0; i <= steps; i++) {
+    let t = i / steps;
+    let p = getTimelinePoint(t);
+    let alpha = map(t, 0, 1, 30, 80);
+    stroke(100, 200, 255, alpha);
+    strokeWeight(22);
+    vertex(p.x, p.y);
+  }
+  endShape();
+
+  // ── 層 2：中等帶（主體）──────────────────────────────
+  noFill();
+  beginShape();
+  for (let i = 0; i <= steps; i++) {
+    let t = i / steps;
+    let p = getTimelinePoint(t);
+    let alpha = map(t, 0, 1, 50, 140);
+    // 顏色從青色→紫色→粉色（成長感）
+    let r = map(t, 0, 1, 80,  220);
+    let g = map(t, 0, 1, 200,  80);
+    let b = map(t, 0, 1, 230, 200);
+    stroke(r, g, b, alpha);
+    strokeWeight(5);
+    vertex(p.x, p.y);
+  }
+  endShape();
+
+  // ── 層 3：細亮線（高光）──────────────────────────────
+  noFill();
+  beginShape();
+  for (let i = 0; i <= steps; i++) {
+    let t = i / steps;
+    let p = getTimelinePoint(t);
+    stroke(220, 240, 255, map(t, 0, 1, 80, 200));
+    strokeWeight(1.2);
+    vertex(p.x, p.y);
+  }
+  endShape();
+
+  // ── 小刻度（週次標記）────────────────────────────────
+  let total = weekData.length;
+  for (let i = 0; i < total; i++) {
+    let t = map(i, 0, total - 1, 0.08, 0.92);
+    let p = getTimelinePoint(t);
+    // 刻度短線（垂直於軸方向）
+    let p2 = getTimelinePoint(min(t + 0.005, 1));
+    let dx = p2.x - p.x, dy = p2.y - p.y;
+    let len = sqrt(dx * dx + dy * dy);
+    let nx = -dy / len * 8, ny = dx / len * 8;
+
+    stroke(180, 230, 255, 100);
+    strokeWeight(1);
+    line(p.x + nx, p.y + ny, p.x - nx, p.y - ny);
+  }
+}
+
+// ── drawConstellationLines：星座連線 ─────────────────────
+function drawConstellationLines() {
+  if (nodes.length < 2) return;
+  for (let i = 0; i < nodes.length - 1; i++) {
+    let a = nodes[i], b = nodes[i + 1];
+    let alpha = (a.isHovered || b.isHovered || a.isSelected || b.isSelected) ? 120 : 35;
+    stroke(180, 200, 255, alpha);
+    strokeWeight(0.8);
+    line(a.x, a.y, b.x, b.y);
+  }
+}
+
+// ── updateNodes：節點更新與互動偵測 ──────────────────────
+function updateNodes() {
+  let anyHovered = false;
+  let total = nodes.length;
+
+  for (let i = 0; i < total; i++) {
+    let n = nodes[i];
+
+    // ⭐ 每幀重新抓時間軸位置
+    let t = map(i, 0, total - 1, 0.08, 0.92);
+    let pos = getTimelinePoint(t);
+    n.x = pos.x;
+    n.y = pos.y;
+
+    // hover 判定
+    n.isHovered = n.isOver(mouseX, mouseY);
+    if (n.isHovered) anyHovered = true;
+
+    n.update();
+    n.draw();
+  }
+
+  cursor(anyHovered ? 'pointer' : 'default');
+}
+
+// ── spawnTrailParticle：滑鼠拖尾粒子 ────────────────────
+function spawnTrailParticle() {
+  if (frameCount % 3 === 0) {
+    // 顏色依位置變換
+    let hue = map(mouseX, 0, width, 180, 280);
+    let col = `hsl(${hue},80%,70%)`;
+    particles.push(new Particle(mouseX, mouseY, col, 'trail'));
+  }
+}
+
+// ── mousePressed：點擊節點 ───────────────────────────────
+function mousePressed() {
+  let clicked = false;
+  for (let n of nodes) {
+    if (n.isOver(mouseX, mouseY)) {
+      // 先清除所有選中
+      for (let m of nodes) m.isSelected = false;
+      n.onClick();
+      selectedNode = n;
+      clicked = true;
+      break;
+    }
+  }
+  // 點擊空白區域：波紋
+  if (!clicked) {
+    ripples.push(new Ripple(mouseX, mouseY, '#7ee8fa'));
+  }
+}
+
+// ── 視窗 resize ──────────────────────────────────────────
+let lastW = 0, lastH = 0;
+function resizeIfNeeded() {
+  let container = document.getElementById('canvas-container');
+  if (!container) return;
+  let w = container.offsetWidth, h = container.offsetHeight;
+  if (abs(w - lastW) > 2 || abs(h - lastH) > 2) {
+    resizeCanvas(w, h);
+    lastW = w; lastH = h;
+    buildNodes(); // 重算節點位置
+  }
+}
+
+// ── 提供給 index.html 呼叫：清除選中 ───────────────────
+window.clearSelectedNode = function () {
+  for (let n of nodes) n.isSelected = false;
+  selectedNode = null;
+};

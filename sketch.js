@@ -384,7 +384,7 @@ function getTimelinePoint(t) {
   let margin = 80;
 
   // ✅ X 固定在左側 1/4 區域
-  let x = width * 0.25 
+  let x = width * 0.25 +60
         + sin(t * PI * 2.2 + timeOffset * 0.05) * 50
         +50;
 
